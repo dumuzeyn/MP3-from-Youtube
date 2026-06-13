@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
 
 def parse_args():
@@ -35,7 +36,7 @@ def download_mp3(urls, output_dir, quality):
         "format": "bestaudio/best",
         "outtmpl": str(output_path / "%(title).200B.%(ext)s"),
         "windowsfilenames": True,
-        "ignoreerrors": False,
+        "ignoreerrors": True,
         "noplaylist": False,
         "postprocessors": [
             {
@@ -58,10 +59,28 @@ def main():
     except KeyboardInterrupt:
         print("\nDownload cancelled.", file=sys.stderr)
         return 130
+    except DownloadError as error:
+        message = str(error)
+        print(f"Download error: {message}", file=sys.stderr)
+
+        if "playlist does not exist" in message.lower():
+            print(
+                "YouTube says this playlist does not exist. Check that the link is correct, "
+                "the playlist is public, and it opens in your browser.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "Check the YouTube link and try updating yt-dlp: "
+                "python -m pip install -U yt-dlp",
+                file=sys.stderr,
+            )
+
+        return 1
     except Exception as error:
         print(f"Error: {error}", file=sys.stderr)
         print(
-            "Make sure yt-dlp is installed and ffmpeg is available in PATH.",
+            "If this happened during MP3 conversion, make sure ffmpeg is available in PATH.",
             file=sys.stderr,
         )
         return 1
