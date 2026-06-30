@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -28,9 +29,29 @@ def parse_args():
     return parser.parse_args()
 
 
-def download_mp3(urls, output_dir, quality):
+def resource_path(relative_path):
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base / relative_path
+
+
+def bundled_ffmpeg_dir():
+    ffmpeg_dir = resource_path("ffmpeg")
+    if (ffmpeg_dir / "ffmpeg.exe").exists():
+        return ffmpeg_dir
+    return None
+
+
+def configure_bundled_ffmpeg():
+    ffmpeg_dir = bundled_ffmpeg_dir()
+    if ffmpeg_dir is not None:
+        os.environ["PATH"] = str(ffmpeg_dir) + os.pathsep + os.environ.get("PATH", "")
+    return ffmpeg_dir
+
+
+def download_mp3(urls, output_dir, quality, progress_hooks=None, logger=None):
     output_path = Path(output_dir).expanduser().resolve()
     output_path.mkdir(parents=True, exist_ok=True)
+    ffmpeg_dir = configure_bundled_ffmpeg()
 
     options = {
         "format": "bestaudio/best",
@@ -46,6 +67,12 @@ def download_mp3(urls, output_dir, quality):
             }
         ],
     }
+    if ffmpeg_dir is not None:
+        options["ffmpeg_location"] = str(ffmpeg_dir)
+    if progress_hooks:
+        options["progress_hooks"] = progress_hooks
+    if logger:
+        options["logger"] = logger
 
     with YoutubeDL(options) as ydl:
         ydl.download(urls)
