@@ -3,6 +3,7 @@ import re
 import sys
 import threading
 import traceback
+import webbrowser
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -15,7 +16,6 @@ from youtube_to_mp3 import configure_bundled_ffmpeg, download_mp3, resource_path
 APP_NAME = "MP3 Ship"
 QUALITIES = ("128", "192", "256", "320")
 URL_PATTERN = re.compile(r"https?://[^\s,;]+")
-BROWSERS = ("none", "chrome", "edge", "firefox", "brave", "opera", "vivaldi")
 
 I18N = {
     "en": {
@@ -25,20 +25,29 @@ I18N = {
         "save_to": "Save to",
         "browse": "Browse",
         "quality": "MP3 quality",
-        "cookies_browser": "Browser cookies",
+        "cookies_file": "cookies.txt",
+        "choose_cookies": "Choose",
+        "clear_cookies": "Clear",
+        "cookies_help": "Cookies help",
         "download": "Download MP3",
+        "stop": "Stop",
         "clear_log": "Clear log",
         "ready": "Ready",
         "ready_log": "Ready. Paste one or many YouTube links, choose a folder, then press Download MP3.",
         "missing_links": "Paste at least one YouTube link.",
         "missing_output": "Choose an output folder.",
         "choose_output": "Choose output folder",
+        "choose_cookies_file": "Choose cookies.txt",
+        "cookies_help_title": "How to get cookies.txt",
+        "cookies_help_text": "1. Open YouTube in Chrome and sign in.\n2. Install a cookies.txt exporter extension from the Chrome Web Store.\n3. On youtube.com, export cookies as cookies.txt.\n4. In MP3 Ship, press Choose near cookies.txt and select that file.\n\nThis works while the browser is open because the app reads the exported file, not Chrome's locked database.",
         "downloading": "Downloading...",
         "starting": "Starting download...",
+        "stopping": "Stopping...",
+        "stopped": "Download stopped.",
         "done": "Done.",
         "finished_with_errors": "Finished with failed item(s). If YouTube asks to confirm you are not a bot, choose the browser where you are signed in to YouTube and try again.",
         "download_error": "Download error: ",
-        "bot_hint": "YouTube asked to confirm you are not a bot. Choose Chrome, Edge, Firefox, Brave, Opera, or Vivaldi in Browser cookies, make sure YouTube is signed in there, and try again.",
+        "bot_hint": "YouTube asked to confirm you are not a bot. Use Cookies help, export cookies.txt from a signed-in browser, choose that file in the app, and try again.",
         "error": "Error:",
         "downloading_file": "Downloading",
         "converting_file": "Converting",
@@ -51,20 +60,29 @@ I18N = {
         "save_to": "Сохранить в",
         "browse": "Обзор",
         "quality": "Качество MP3",
-        "cookies_browser": "Cookies браузера",
+        "cookies_file": "cookies.txt",
+        "choose_cookies": "Выбрать",
+        "clear_cookies": "Очистить",
+        "cookies_help": "Помощь с cookies",
         "download": "Скачать MP3",
+        "stop": "Остановить",
         "clear_log": "Очистить журнал",
         "ready": "Готово",
         "ready_log": "Готово. Вставьте одну или много ссылок YouTube, выберите папку и нажмите Скачать MP3.",
         "missing_links": "Вставьте хотя бы одну ссылку YouTube.",
         "missing_output": "Выберите папку для сохранения.",
         "choose_output": "Выберите папку для сохранения",
+        "choose_cookies_file": "Выберите cookies.txt",
+        "cookies_help_title": "Как получить cookies.txt",
+        "cookies_help_text": "1. Откройте YouTube в Chrome и войдите в аккаунт.\n2. Установите расширение для экспорта cookies.txt из Chrome Web Store.\n3. На сайте youtube.com экспортируйте cookies в файл cookies.txt.\n4. В MP3 Ship нажмите Выбрать рядом с cookies.txt и укажите этот файл.\n\nЭто работает с открытым браузером, потому что приложение читает экспортированный файл, а не заблокированную базу Chrome.",
         "downloading": "Скачивание...",
         "starting": "Запуск скачивания...",
+        "stopping": "Остановка...",
+        "stopped": "Скачивание остановлено.",
         "done": "Готово.",
         "finished_with_errors": "Завершено с ошибками. Если YouTube просит подтвердить, что вы не бот, выберите браузер, где выполнен вход в YouTube, и попробуйте снова.",
         "download_error": "Ошибка скачивания: ",
-        "bot_hint": "YouTube попросил подтвердить, что вы не бот. В поле Cookies браузера выберите Chrome, Edge, Firefox, Brave, Opera или Vivaldi, убедитесь, что в этом браузере выполнен вход в YouTube, и попробуйте снова.",
+        "bot_hint": "YouTube попросил подтвердить, что вы не бот. Нажмите Помощь с cookies, экспортируйте cookies.txt из браузера с входом в YouTube, выберите этот файл в приложении и попробуйте снова.",
         "error": "Ошибка:",
         "downloading_file": "Скачивается",
         "converting_file": "Конвертация",
@@ -119,8 +137,8 @@ class MP3ShipApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
-        self.minsize(760, 560)
-        self.geometry("860x640")
+        self.minsize(960, 700)
+        self.geometry("1000x760")
         self.configure(bg=COLORS["bg"])
 
         icon = resource_path("assets/mp3_ship_icon_exact.ico")
@@ -130,11 +148,12 @@ class MP3ShipApp(tk.Tk):
         self.urls_var = tk.StringVar()
         self.output_var = tk.StringVar(value=str(Path.home() / "Music"))
         self.quality_var = tk.StringVar(value="192")
-        self.cookies_browser_var = tk.StringVar(value="none")
+        self.cookies_file_var = tk.StringVar()
         self.language = "ru"
         self.localized_widgets = []
         self.status_var = tk.StringVar()
         self.worker = None
+        self.cancel_event = threading.Event()
         self.log_queue = queue.Queue()
 
         self._configure_style()
@@ -177,7 +196,7 @@ class MP3ShipApp(tk.Tk):
         self.description_label = ttk.Label(
             header,
             style="Muted.TLabel",
-            wraplength=720,
+            wraplength=840,
         )
         self.description_label.grid(row=1, column=0, sticky="w", pady=(4, 0))
         self.localized_widgets.append((self.description_label, "description"))
@@ -221,10 +240,22 @@ class MP3ShipApp(tk.Tk):
         self.localized_widgets.append((self.quality_label, "quality"))
         ttk.Combobox(form, textvariable=self.quality_var, values=QUALITIES, state="readonly", width=12).grid(row=2, column=1, sticky="w", padx=(12, 0), pady=6)
 
-        self.cookies_label = ttk.Label(form, background=COLORS["panel"])
-        self.cookies_label.grid(row=3, column=0, sticky="w", pady=6)
-        self.localized_widgets.append((self.cookies_label, "cookies_browser"))
-        ttk.Combobox(form, textvariable=self.cookies_browser_var, values=BROWSERS, state="readonly", width=12).grid(row=3, column=1, sticky="w", padx=(12, 0), pady=6)
+        self.cookies_file_label = ttk.Label(form, background=COLORS["panel"])
+        self.cookies_file_label.grid(row=3, column=0, sticky="w", pady=6)
+        self.localized_widgets.append((self.cookies_file_label, "cookies_file"))
+        ttk.Entry(form, textvariable=self.cookies_file_var).grid(row=3, column=1, sticky="ew", padx=(12, 8), pady=6)
+        cookie_buttons = ttk.Frame(form, style="Panel.TFrame")
+        cookie_buttons.grid(row=3, column=2, sticky="e", pady=6)
+        self.choose_cookies_button = ttk.Button(cookie_buttons, command=self._choose_cookies_file)
+        self.choose_cookies_button.pack(side=tk.LEFT, padx=(0, 6))
+        self.localized_widgets.append((self.choose_cookies_button, "choose_cookies"))
+        self.clear_cookies_button = ttk.Button(cookie_buttons, command=self._clear_cookies_file)
+        self.clear_cookies_button.pack(side=tk.LEFT)
+        self.localized_widgets.append((self.clear_cookies_button, "clear_cookies"))
+
+        self.cookies_help_button = ttk.Button(form, command=self._show_cookies_help)
+        self.cookies_help_button.grid(row=4, column=1, sticky="w", padx=(12, 0), pady=(2, 6))
+        self.localized_widgets.append((self.cookies_help_button, "cookies_help"))
 
         buttons = ttk.Frame(root)
         buttons.grid(row=2, column=0, sticky="ew", pady=14)
@@ -232,8 +263,11 @@ class MP3ShipApp(tk.Tk):
         self.run_button = ttk.Button(buttons, command=self._run, style="Accent.TButton")
         self.run_button.grid(row=0, column=1, padx=(8, 0))
         self.localized_widgets.append((self.run_button, "download"))
+        self.stop_button = ttk.Button(buttons, command=self._stop_download, state=tk.DISABLED)
+        self.stop_button.grid(row=0, column=2, padx=(8, 0))
+        self.localized_widgets.append((self.stop_button, "stop"))
         self.clear_button = ttk.Button(buttons, command=self._clear_log)
-        self.clear_button.grid(row=0, column=2, padx=(8, 0))
+        self.clear_button.grid(row=0, column=3, padx=(8, 0))
         self.localized_widgets.append((self.clear_button, "clear_log"))
 
         log_frame = ttk.Frame(root)
@@ -245,7 +279,7 @@ class MP3ShipApp(tk.Tk):
         self.progress.grid(row=0, column=1, sticky="ew", pady=(0, 8))
         self.log = tk.Text(
             log_frame,
-            height=16,
+            height=20,
             wrap="word",
             undo=True,
             bg="#0b0f12",
@@ -380,6 +414,25 @@ class MP3ShipApp(tk.Tk):
         if path:
             self.output_var.set(path)
 
+    def _choose_cookies_file(self):
+        downloads = Path.home() / "Downloads"
+        initial_dir = downloads if downloads.exists() else Path.home()
+        path = filedialog.askopenfilename(
+            title=self.t("choose_cookies_file"),
+            initialdir=str(initial_dir),
+            filetypes=[("cookies.txt", "*.txt"), ("All files", "*.*")],
+        )
+        if path:
+            self.cookies_file_var.set(path)
+
+    def _clear_cookies_file(self):
+        self.cookies_file_var.set("")
+
+    def _show_cookies_help(self):
+        messagebox.showinfo(self.t("cookies_help_title"), self.t("cookies_help_text"))
+        webbrowser.open("https://www.youtube.com/")
+        webbrowser.open("https://chromewebstore.google.com/search/cookies.txt")
+
     def _extract_urls(self):
         text = self.urls_text.get("1.0", tk.END)
         urls = URL_PATTERN.findall(text)
@@ -398,17 +451,24 @@ class MP3ShipApp(tk.Tk):
             return
 
         self.run_button.configure(state=tk.DISABLED)
+        self.stop_button.configure(state=tk.NORMAL)
+        self.cancel_event.clear()
         self.progress.start(12)
         self.status_var.set(self.t("downloading"))
         self._write_log("\n" + self.t("starting") + "\n")
-        cookies_browser = self.cookies_browser_var.get()
-        if cookies_browser == "none":
-            cookies_browser = None
-        args = (urls, output, self.quality_var.get(), cookies_browser)
+        cookies_file = self.cookies_file_var.get().strip() or None
+        args = (urls, output, self.quality_var.get(), cookies_file)
         self.worker = threading.Thread(target=self._worker_run, args=args, daemon=True)
         self.worker.start()
 
-    def _worker_run(self, urls, output, quality, cookies_browser):
+    def _stop_download(self):
+        if self.worker and self.worker.is_alive():
+            self.cancel_event.set()
+            self.status_var.set(self.t("stopping"))
+            self._write_log("\n" + self.t("stopping") + "\n")
+            self.stop_button.configure(state=tk.DISABLED)
+
+    def _worker_run(self, urls, output, quality, cookies_file):
         try:
             failures = download_mp3(
                 urls,
@@ -416,7 +476,8 @@ class MP3ShipApp(tk.Tk):
                 quality,
                 progress_hooks=[self._progress_hook],
                 logger=GuiLogger(self.log_queue),
-                cookies_from_browser=cookies_browser,
+                cookies_file=cookies_file,
+                cancel_event=self.cancel_event,
             )
             if failures:
                 self.log_queue.put("\n" + self.t("finished_with_errors") + "\n")
@@ -424,9 +485,12 @@ class MP3ShipApp(tk.Tk):
                 self.log_queue.put("\n" + self.t("done") + "\n")
         except DownloadError as error:
             message = str(error)
-            self.log_queue.put("\n" + self.t("download_error") + message + "\n")
-            if self._is_bot_check_error(message):
-                self.log_queue.put(self.t("bot_hint") + "\n")
+            if self.cancel_event.is_set() or "cancelled by user" in message.lower():
+                self.log_queue.put("\n" + self.t("stopped") + "\n")
+            else:
+                self.log_queue.put("\n" + self.t("download_error") + message + "\n")
+                if self._is_bot_check_error(message):
+                    self.log_queue.put(self.t("bot_hint") + "\n")
         except Exception:
             self.log_queue.put("\n" + self.t("error") + "\n" + traceback.format_exc())
         finally:
@@ -434,6 +498,8 @@ class MP3ShipApp(tk.Tk):
 
     def _progress_hook(self, info):
         status = info.get("status")
+        if self.cancel_event.is_set():
+            raise DownloadError("Cancelled by user.")
         if status == "downloading":
             name = info.get("filename") or info.get("tmpfilename") or "audio"
             percent = info.get("_percent_str", "").strip()
@@ -450,6 +516,7 @@ class MP3ShipApp(tk.Tk):
                 if isinstance(item, tuple) and item[0] == "__DONE__":
                     self.progress.stop()
                     self.run_button.configure(state=tk.NORMAL)
+                    self.stop_button.configure(state=tk.DISABLED)
                     self.status_var.set(self.t("ready"))
                 else:
                     self._write_log(item)

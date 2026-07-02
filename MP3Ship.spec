@@ -4,7 +4,7 @@
 a = Analysis(
     ['mp3_ship_gui.py'],
     pathex=[],
-    binaries=[('C:\\ffmpeg\\bin\\ffmpeg.exe', 'ffmpeg')],
+    binaries=[('C:\\ffmpeg\\bin\\ffmpeg.exe', 'ffmpeg'), ('vendor\\deno\\deno.exe', 'deno')],
     datas=[('assets\\mp3_ship_icon_exact.ico', 'assets'), ('assets\\mp3_ship_icon_exact.svg', 'assets')],
     hiddenimports=[],
     hookspath=[],

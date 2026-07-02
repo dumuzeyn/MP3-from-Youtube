@@ -31,6 +31,10 @@ def parse_args():
         choices=["brave", "chrome", "chromium", "edge", "firefox", "opera", "vivaldi"],
         help="Use cookies from a browser where YouTube is already signed in.",
     )
+    parser.add_argument(
+        "--cookies",
+        help="Path to an exported cookies.txt file.",
+    )
     return parser.parse_args()
 
 
@@ -46,6 +50,13 @@ def bundled_ffmpeg_dir():
     return None
 
 
+def bundled_deno_path():
+    deno_path = resource_path("deno/deno.exe")
+    if deno_path.exists():
+        return deno_path
+    return None
+
+
 def configure_bundled_ffmpeg():
     ffmpeg_dir = bundled_ffmpeg_dir()
     if ffmpeg_dir is not None:
@@ -53,16 +64,27 @@ def configure_bundled_ffmpeg():
     return ffmpeg_dir
 
 
-def download_mp3(urls, output_dir, quality, progress_hooks=None, logger=None, cookies_from_browser=None):
+def download_mp3(
+    urls,
+    output_dir,
+    quality,
+    progress_hooks=None,
+    logger=None,
+    cookies_from_browser=None,
+    cookies_file=None,
+    cancel_event=None,
+):
     output_path = Path(output_dir).expanduser().resolve()
     output_path.mkdir(parents=True, exist_ok=True)
     ffmpeg_dir = configure_bundled_ffmpeg()
+    deno_path = bundled_deno_path()
 
     options = {
         "format": "bestaudio/best",
         "outtmpl": str(output_path / "%(title).200B.%(ext)s"),
         "windowsfilenames": True,
         "ignoreerrors": True,
+        "remote_components": ["ejs:github"],
         "noplaylist": False,
         "postprocessors": [
             {
@@ -74,10 +96,21 @@ def download_mp3(urls, output_dir, quality, progress_hooks=None, logger=None, co
     }
     if ffmpeg_dir is not None:
         options["ffmpeg_location"] = str(ffmpeg_dir)
-    if progress_hooks:
-        options["progress_hooks"] = progress_hooks
+    if deno_path is not None:
+        options["js_runtimes"] = {"deno": {"path": str(deno_path)}}
+    hooks = list(progress_hooks or [])
+    if cancel_event is not None:
+        def cancel_hook(_info):
+            if cancel_event.is_set():
+                raise DownloadError("Cancelled by user.")
+
+        hooks.insert(0, cancel_hook)
+    if hooks:
+        options["progress_hooks"] = hooks
     if logger:
         options["logger"] = logger
+    if cookies_file:
+        options["cookiefile"] = str(Path(cookies_file).expanduser().resolve())
     if cookies_from_browser:
         options["cookiesfrombrowser"] = (cookies_from_browser,)
 
@@ -90,7 +123,13 @@ def main():
     args = parse_args()
 
     try:
-        failures = download_mp3(args.urls, args.output_dir, args.quality, cookies_from_browser=args.cookies_from_browser)
+        failures = download_mp3(
+            args.urls,
+            args.output_dir,
+            args.quality,
+            cookies_from_browser=args.cookies_from_browser,
+            cookies_file=args.cookies,
+        )
         if failures:
             print(f"Completed with {failures} failed item(s).", file=sys.stderr)
             return 1
