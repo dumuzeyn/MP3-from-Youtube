@@ -264,6 +264,22 @@ class MP3ShipApp(tk.Tk):
             "<Shift-Insert>": self._paste,
         }.items():
             self.bind_all(sequence, handler, add="+")
+        self.bind_all("<Control-KeyPress>", self._keycode_fallback, add="+")
+
+    def _keycode_fallback(self, event):
+        if not event.state & 0x4:
+            return None
+        keycode_map = {
+            65: self._select_all,
+            67: self._copy,
+            86: self._paste,
+            88: self._cut,
+            90: self._undo,
+        }
+        handler = keycode_map.get(event.keycode)
+        if handler:
+            return handler(event)
+        return None
 
     def _focused_edit_widget(self):
         widget = self.focus_get()
@@ -283,13 +299,58 @@ class MP3ShipApp(tk.Tk):
         return "break"
 
     def _copy(self, _event=None):
-        return self._generate_edit_event("<<Copy>>")
+        widget = self._focused_edit_widget()
+        if widget is None:
+            return None
+        try:
+            if widget.winfo_class() == "Text":
+                selected = widget.get("sel.first", "sel.last")
+            else:
+                selected = widget.selection_get()
+            self.clipboard_clear()
+            self.clipboard_append(selected)
+            return "break"
+        except tk.TclError:
+            return None
 
     def _cut(self, _event=None):
-        return self._generate_edit_event("<<Cut>>")
+        widget = self._focused_edit_widget()
+        if widget is None:
+            return None
+        try:
+            if widget.winfo_class() == "Text":
+                selected = widget.get("sel.first", "sel.last")
+                widget.delete("sel.first", "sel.last")
+            else:
+                selected = widget.selection_get()
+                widget.delete("sel.first", "sel.last")
+            self.clipboard_clear()
+            self.clipboard_append(selected)
+            return "break"
+        except tk.TclError:
+            return None
 
     def _paste(self, _event=None):
-        return self._generate_edit_event("<<Paste>>")
+        widget = self._focused_edit_widget()
+        if widget is None:
+            return None
+        try:
+            text = self.clipboard_get()
+            if widget.winfo_class() == "Text":
+                try:
+                    widget.delete("sel.first", "sel.last")
+                except tk.TclError:
+                    pass
+                widget.insert(tk.INSERT, text)
+            else:
+                try:
+                    widget.delete("sel.first", "sel.last")
+                except tk.TclError:
+                    pass
+                widget.insert(tk.INSERT, text)
+            return "break"
+        except tk.TclError:
+            return None
 
     def _undo(self, _event=None):
         return self._generate_edit_event("<<Undo>>")
