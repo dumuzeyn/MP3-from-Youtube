@@ -15,6 +15,7 @@ from youtube_to_mp3 import configure_bundled_ffmpeg, download_mp3, resource_path
 APP_NAME = "MP3 Ship"
 QUALITIES = ("128", "192", "256", "320")
 URL_PATTERN = re.compile(r"https?://[^\s,;]+")
+BROWSERS = ("none", "chrome", "edge", "firefox", "brave", "opera", "vivaldi")
 
 I18N = {
     "en": {
@@ -24,6 +25,7 @@ I18N = {
         "save_to": "Save to",
         "browse": "Browse",
         "quality": "MP3 quality",
+        "cookies_browser": "Browser cookies",
         "download": "Download MP3",
         "clear_log": "Clear log",
         "ready": "Ready",
@@ -34,7 +36,9 @@ I18N = {
         "downloading": "Downloading...",
         "starting": "Starting download...",
         "done": "Done.",
+        "finished_with_errors": "Finished with failed item(s). If YouTube asks to confirm you are not a bot, choose the browser where you are signed in to YouTube and try again.",
         "download_error": "Download error: ",
+        "bot_hint": "YouTube asked to confirm you are not a bot. Choose Chrome, Edge, Firefox, Brave, Opera, or Vivaldi in Browser cookies, make sure YouTube is signed in there, and try again.",
         "error": "Error:",
         "downloading_file": "Downloading",
         "converting_file": "Converting",
@@ -47,6 +51,7 @@ I18N = {
         "save_to": "Сохранить в",
         "browse": "Обзор",
         "quality": "Качество MP3",
+        "cookies_browser": "Cookies браузера",
         "download": "Скачать MP3",
         "clear_log": "Очистить журнал",
         "ready": "Готово",
@@ -57,7 +62,9 @@ I18N = {
         "downloading": "Скачивание...",
         "starting": "Запуск скачивания...",
         "done": "Готово.",
+        "finished_with_errors": "Завершено с ошибками. Если YouTube просит подтвердить, что вы не бот, выберите браузер, где выполнен вход в YouTube, и попробуйте снова.",
         "download_error": "Ошибка скачивания: ",
+        "bot_hint": "YouTube попросил подтвердить, что вы не бот. В поле Cookies браузера выберите Chrome, Edge, Firefox, Brave, Opera или Vivaldi, убедитесь, что в этом браузере выполнен вход в YouTube, и попробуйте снова.",
         "error": "Ошибка:",
         "downloading_file": "Скачивается",
         "converting_file": "Конвертация",
@@ -123,6 +130,7 @@ class MP3ShipApp(tk.Tk):
         self.urls_var = tk.StringVar()
         self.output_var = tk.StringVar(value=str(Path.home() / "Music"))
         self.quality_var = tk.StringVar(value="192")
+        self.cookies_browser_var = tk.StringVar(value="none")
         self.language = "ru"
         self.localized_widgets = []
         self.status_var = tk.StringVar()
@@ -212,6 +220,11 @@ class MP3ShipApp(tk.Tk):
         self.quality_label.grid(row=2, column=0, sticky="w", pady=6)
         self.localized_widgets.append((self.quality_label, "quality"))
         ttk.Combobox(form, textvariable=self.quality_var, values=QUALITIES, state="readonly", width=12).grid(row=2, column=1, sticky="w", padx=(12, 0), pady=6)
+
+        self.cookies_label = ttk.Label(form, background=COLORS["panel"])
+        self.cookies_label.grid(row=3, column=0, sticky="w", pady=6)
+        self.localized_widgets.append((self.cookies_label, "cookies_browser"))
+        ttk.Combobox(form, textvariable=self.cookies_browser_var, values=BROWSERS, state="readonly", width=12).grid(row=3, column=1, sticky="w", padx=(12, 0), pady=6)
 
         buttons = ttk.Frame(root)
         buttons.grid(row=2, column=0, sticky="ew", pady=14)
@@ -388,22 +401,32 @@ class MP3ShipApp(tk.Tk):
         self.progress.start(12)
         self.status_var.set(self.t("downloading"))
         self._write_log("\n" + self.t("starting") + "\n")
-        args = (urls, output, self.quality_var.get())
+        cookies_browser = self.cookies_browser_var.get()
+        if cookies_browser == "none":
+            cookies_browser = None
+        args = (urls, output, self.quality_var.get(), cookies_browser)
         self.worker = threading.Thread(target=self._worker_run, args=args, daemon=True)
         self.worker.start()
 
-    def _worker_run(self, urls, output, quality):
+    def _worker_run(self, urls, output, quality, cookies_browser):
         try:
-            download_mp3(
+            failures = download_mp3(
                 urls,
                 output,
                 quality,
                 progress_hooks=[self._progress_hook],
                 logger=GuiLogger(self.log_queue),
+                cookies_from_browser=cookies_browser,
             )
-            self.log_queue.put("\n" + self.t("done") + "\n")
+            if failures:
+                self.log_queue.put("\n" + self.t("finished_with_errors") + "\n")
+            else:
+                self.log_queue.put("\n" + self.t("done") + "\n")
         except DownloadError as error:
-            self.log_queue.put("\n" + self.t("download_error") + str(error) + "\n")
+            message = str(error)
+            self.log_queue.put("\n" + self.t("download_error") + message + "\n")
+            if self._is_bot_check_error(message):
+                self.log_queue.put(self.t("bot_hint") + "\n")
         except Exception:
             self.log_queue.put("\n" + self.t("error") + "\n" + traceback.format_exc())
         finally:
@@ -440,6 +463,10 @@ class MP3ShipApp(tk.Tk):
 
     def _clear_log(self):
         self.log.delete("1.0", tk.END)
+
+    def _is_bot_check_error(self, message):
+        lowered = message.lower()
+        return "not a bot" in lowered or "sign in to confirm" in lowered or "cookies" in lowered
 
     def _toggle_language(self):
         self.language = "en" if self.language == "ru" else "ru"

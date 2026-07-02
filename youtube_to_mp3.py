@@ -26,6 +26,11 @@ def parse_args():
         choices=["128", "192", "256", "320"],
         help="MP3 bitrate in kbps. Default: 192.",
     )
+    parser.add_argument(
+        "--cookies-from-browser",
+        choices=["brave", "chrome", "chromium", "edge", "firefox", "opera", "vivaldi"],
+        help="Use cookies from a browser where YouTube is already signed in.",
+    )
     return parser.parse_args()
 
 
@@ -48,7 +53,7 @@ def configure_bundled_ffmpeg():
     return ffmpeg_dir
 
 
-def download_mp3(urls, output_dir, quality, progress_hooks=None, logger=None):
+def download_mp3(urls, output_dir, quality, progress_hooks=None, logger=None, cookies_from_browser=None):
     output_path = Path(output_dir).expanduser().resolve()
     output_path.mkdir(parents=True, exist_ok=True)
     ffmpeg_dir = configure_bundled_ffmpeg()
@@ -73,16 +78,22 @@ def download_mp3(urls, output_dir, quality, progress_hooks=None, logger=None):
         options["progress_hooks"] = progress_hooks
     if logger:
         options["logger"] = logger
+    if cookies_from_browser:
+        options["cookiesfrombrowser"] = (cookies_from_browser,)
 
     with YoutubeDL(options) as ydl:
-        ydl.download(urls)
+        failures = ydl.download(urls)
+        return failures
 
 
 def main():
     args = parse_args()
 
     try:
-        download_mp3(args.urls, args.output_dir, args.quality)
+        failures = download_mp3(args.urls, args.output_dir, args.quality, cookies_from_browser=args.cookies_from_browser)
+        if failures:
+            print(f"Completed with {failures} failed item(s).", file=sys.stderr)
+            return 1
     except KeyboardInterrupt:
         print("\nDownload cancelled.", file=sys.stderr)
         return 130
